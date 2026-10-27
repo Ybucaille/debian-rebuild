@@ -1,0 +1,98 @@
+#cloud-config
+# Configuration appliquée par cloud-init au premier démarrage de la VM.
+# Le marqueur de clé SSH plus bas est remplacé par la clé publique de l'admin au déploiement.
+
+hostname: deb-rebuild
+timezone: Europe/Paris
+
+# Un seul compte, accessible uniquement par clé SSH.
+users:
+  - name: admin
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - __SSH_KEY__
+disable_root: true
+ssh_pwauth: false
+
+package_update: true
+package_upgrade: true
+packages:
+  - nftables
+  - fail2ban
+  - python3-systemd
+  - unattended-upgrades
+  - nginx
+
+# defer: true écrit ces fichiers après l'installation des paquets,
+# pour ne pas entrer en conflit avec les fichiers fournis par les paquets.
+write_files:
+  # Durcissement SSH : pas de root, pas de mot de passe, seul admin entre.
+  - path: /etc/ssh/sshd_config.d/10-hardening.conf
+    defer: true
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      AllowUsers admin
+      MaxAuthTries 3
+
+  # Pare-feu : tout ce qui entre est refusé, sauf ce qui est listé.
+  - path: /etc/nftables.conf
+    defer: true
+    permissions: "0755"
+    content: |
+      #!/usr/sbin/nft -f
+      flush ruleset
+
+      table inet filter {
+        chain input {
+          type filter hook input priority filter; policy drop;
+          iif "lo" accept
+          ct state established,related accept
+          ct state invalid drop
+          meta l4proto { icmp, ipv6-icmp } accept
+          tcp dport { 22, 80 } ct state new accept
+        }
+        chain forward {
+          type filter hook forward priority filter; policy drop;
+        }
+        chain output {
+          type filter hook output priority filter; policy accept;
+        }
+      }
+
+  # fail2ban lit le journal systemd (Debian 13 n'a plus de /var/log/auth.log).
+  - path: /etc/fail2ban/jail.d/sshd.local
+    defer: true
+    content: |
+      [sshd]
+      enabled = true
+      backend = systemd
+      maxretry = 3
+      findtime = 10m
+      bantime = 1h
+
+  # Mises à jour de sécurité automatiques, tous les jours.
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    defer: true
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+runcmd:
+  - systemctl enable --now nftables
+  - systemctl restart ssh
+  - systemctl enable --now fail2ban
+  - systemctl restart fail2ban
+  - |
+    cat > /var/www/html/index.html <<EOF
+    <!doctype html>
+    <meta charset="utf-8">
+    <title>deb-rebuild</title>
+    <h1>deb-rebuild</h1>
+    <p>Serveur construit le $(date '+%d/%m/%Y à %H:%M:%S') par cloud-init, sans intervention manuelle.</p>
+    <p>$(. /etc/os-release; echo "$PRETTY_NAME"), noyau $(uname -r).</p>
+    EOF
