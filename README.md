@@ -1,24 +1,27 @@
 # debian-rebuild
 
-Un serveur Debian 13 durci, créé et configuré entièrement par script sous KVM/libvirt, puis vérifié par une batterie de tests. On peut le détruire et le reconstruire à l'identique en une commande.
-
-Présentation : https://ybucaille.github.io/debian-rebuild/
+Un serveur Debian 13 durci, créé et configuré entièrement par script sous KVM/libvirt, puis vérifié par 15 tests. Une seule commande le détruit et le reconstruit à l'identique.
 
 ```
 scripts/rebuild.sh
 ```
 
-Sur ma machine (i7-11800H), une reconstruction complète (destruction, création, configuration, 15 tests) prend entre 1 min 03 s et 1 min 31 s : c'est l'écart entre mes trois premiers essais. La durée dépend surtout du téléchargement des paquets.
+```
+>> Destruction : 1 s
+>> Déploiement : 82 s
+>> Tests : 8 s
+Reconstruction complète et testée en 1 min 31 s.
+```
 
 ## Ce que fait le serveur
 
-Tout est décrit dans [cloud-init/user-data.yaml](cloud-init/user-data.yaml), appliqué au premier démarrage :
+Tout est décrit dans [cloud-init/user-data.yaml](cloud-init/user-data.yaml) et appliqué au premier démarrage :
 
-- un seul compte, `admin`, accessible uniquement par clé SSH ; root et les mots de passe sont refusés en SSH ;
-- un pare-feu nftables en liste blanche : tout ce qui entre est refusé, sauf SSH (22), HTTP (80), le ping et les réponses aux connexions sortantes ;
-- fail2ban sur SSH : 3 échecs en 10 minutes donnent un bannissement d'une heure ;
-- les mises à jour de sécurité automatiques (unattended-upgrades) ;
-- nginx, qui sert une page d'état indiquant la date de construction.
+- **Accès** : un seul compte, `admin`, joignable uniquement par clé SSH. Root et les mots de passe sont refusés en SSH.
+- **Pare-feu** : nftables en liste blanche. Tout ce qui entre est refusé, sauf SSH (22), HTTP (80), le ping et les réponses aux connexions sortantes.
+- **fail2ban** : 3 échecs SSH en 10 minutes valent un bannissement d'une heure.
+- **Mises à jour** : les mises à jour de sécurité s'installent automatiquement (unattended-upgrades).
+- **Page d'état** : nginx sert une page qui indique la date de construction.
 
 ## Réseau
 
@@ -26,18 +29,48 @@ Tout est décrit dans [cloud-init/user-data.yaml](cloud-init/user-data.yaml), ap
 VM 192.168.122.40 ──► virbr0 192.168.122.1 ──► NAT de l'hôte ──► box ──► Internet
 ```
 
-La VM est sur le réseau NAT `default` de libvirt. Une réservation DHCP associe sa MAC (`52:54:00:a1:00:40`) à l'IP `192.168.122.40`. Elle peut sortir sur Internet, mais seul l'hôte peut la joindre.
+La VM est sur le réseau NAT `default` de libvirt. Une réservation DHCP associe sa MAC (`52:54:00:a1:00:40`) à l'IP `192.168.122.40`, qui reste la même à chaque reconstruction. La VM peut sortir sur Internet, mais seul l'hôte peut la joindre.
+
+## Installation
+
+### Prérequis
+
+- Linux avec KVM et libvirt (`qemu:///system`, utilisateur dans le groupe `libvirt`) ;
+- `virt-install` 4 ou plus ;
+- le firmware UEFI OVMF.
+
+### 1. Récupérer l'image Debian
+
+Placez l'image cloud officielle dans un dossier déclaré comme pool libvirt, puis vérifiez sa somme :
+
+```
+curl -LO https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2
+curl -LO https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS
+grep ' debian-13-genericcloud-amd64.qcow2$' SHA512SUMS | sha512sum -c -
+```
+
+### 2. Régler la configuration
+
+Les paramètres sont dans [config.sh](config.sh) : nom, MAC, IP, mémoire, taille du disque. Indiquez votre pool et le chemin de l'image dans `BASE_POOL` et `BASE_IMAGE`.
+
+### 3. Lancer
+
+```
+scripts/rebuild.sh
+```
+
+Au premier lancement, `deploy.sh` génère une clé SSH dédiée au labo dans `build/`, un dossier ignoré par git. Si `~/.ssh/id_ed25519.pub` existe, cette clé est aussi autorisée sur la VM.
 
 ## Les scripts
 
 | Script | Rôle |
 |---|---|
-| `scripts/deploy.sh` | Génère la clé SSH du labo, prépare le fichier cloud-init, ajoute la réservation DHCP si elle manque, crée un disque adossé à l'image Debian, lance la VM et attend la fin de cloud-init. |
-| `scripts/test.sh` | Vérifie la configuration depuis l'hôte et depuis la VM (voir ci-dessous). |
-| `scripts/destroy.sh` | Supprime la VM et son disque. L'image de base n'est pas touchée. |
+| `scripts/deploy.sh` | Prépare le fichier cloud-init, ajoute la réservation DHCP si elle manque, crée un disque adossé à l'image Debian, lance la VM et attend la fin de cloud-init. |
+| `scripts/test.sh` | Vérifie la configuration depuis l'hôte et depuis la VM. |
+| `scripts/destroy.sh` | Supprime la VM et son disque, et uniquement eux. L'image de base n'est jamais touchée. |
 | `scripts/rebuild.sh` | Enchaîne les trois et chronomètre chaque étape. |
 
-Les paramètres (nom, MAC, IP, mémoire, image) sont dans [config.sh](config.sh).
+Le disque de la VM est adossé à l'image de base : il n'enregistre que les différences. Reconstruire ne retélécharge donc pas l'image.
 
 ## Les tests
 
@@ -61,15 +94,32 @@ Les paramètres (nom, MAC, IP, mémoire, image) sont dans [config.sh](config.sh)
 15 tests réussis, 0 en échec.
 ```
 
-Le test du port 8080 lance un petit serveur web dans la VM : il répond en local, mais pas depuis l'hôte. C'est la preuve que le pare-feu filtre vraiment, et pas seulement qu'aucun service n'écoute. Quand on vide les règles nftables de la VM, ce test et celui de la politique `drop` passent bien en échec.
+Le test du port 8080 lance un petit serveur web dans la VM. Il répond en local, mais pas depuis l'hôte : c'est la preuve que le pare-feu filtre vraiment, et pas seulement qu'aucun service n'écoute.
 
-## Prérequis
+Pour vérifier que les tests savent aussi échouer, j'ai vidé les règles nftables de la VM. Deux tests sont alors bien passés en échec : celui de la politique `drop` et celui du port 8080.
 
-- Linux avec KVM, libvirt (`qemu:///system`, utilisateur dans le groupe `libvirt`), `virt-install` 4 ou plus, firmware OVMF ;
-- l'image officielle [debian-13-genericcloud-amd64.qcow2](https://cloud.debian.org/images/cloud/trixie/latest/), vérifiée avec `SHA512SUMS`, placée dans un pool libvirt (ici `~/Documents/autres/iso`, pool `iso`).
+## Durées mesurées
+
+Mes cinq premières reconstructions complètes (destruction, création, configuration et 15 tests), sur un i7-11800H :
+
+| Lot | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| Durée | 1 min 31 | 1 min 03 | 1 min 03 | 0 min 39 | 1 min 36 |
+
+L'écart vient surtout du téléchargement des paquets Debian.
 
 ## Problèmes rencontrés
 
-- **Démarrage en boucle juste après GRUB.** En BIOS (SeaBIOS), la VM redémarrait sans fin. Elle démarre normalement en UEFI : d'où le `--boot uefi`.
-- **`Storage volume not found`.** Libvirt ne voit pas un fichier ajouté à un pool tant que celui-ci n'a pas été rafraîchi : d'où le `virsh pool-refresh`.
+- **Démarrage en boucle juste après GRUB.** En BIOS (SeaBIOS), la VM redémarrait sans fin. Elle démarre normalement en UEFI, d'où le `--boot uefi`.
+- **`Storage volume not found`.** libvirt ne voit pas un fichier ajouté à un pool tant que celui-ci n'a pas été rafraîchi, d'où le `virsh pool-refresh`.
 - **Connexion SSH coupée pendant le déploiement.** cloud-init redémarre sshd à la fin de la configuration, alors le script réessaie.
+- **Image de base effacée.** `virsh undefine --remove-all-storage` supprime tous les disques rattachés à la VM, pas seulement le sien. Il a effacé l'image Debian. `destroy.sh` ne supprime plus que le disque qu'il a créé, désigné par son nom.
+
+## Arborescence
+
+```
+cloud-init/user-data.yaml   configuration appliquée au premier démarrage
+config.sh                   paramètres de la VM
+scripts/                    deploy, test, destroy, rebuild
+docs/                       site de présentation (GitHub Pages)
+```
