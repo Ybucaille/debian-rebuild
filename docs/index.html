@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>debian-rebuild : une commande, un serveur neuf</title>
+<title>debian-rebuild : un serveur Debian reconstruit en une commande</title>
 <meta name="description" content="Un serveur Debian 13 durci, détruit, recréé et contrôlé par 22 tests en une seule commande. KVM, libvirt, cloud-init, nftables.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -46,8 +46,8 @@ em { font-style: italic; }
 .hero h1 { font: 400 clamp(54px, 10vw, 150px)/.9 var(--serif); letter-spacing: -.02em; margin: 0 0 34px; }
 .hero h1 em { color: var(--cable); }
 .hero .lead { max-width: 33em; font-size: 19px; margin: 0 0 30px; }
-.cmd { font: 500 15px var(--mono); }
-.cmd::before { content: "$ "; color: var(--cable); }
+.run-out { font: 400 14px/1.7 var(--mono); margin: 0; color: var(--muted); white-space: pre-wrap; }
+.run-out .p { color: var(--cable); }
 
 /* ---------- Arrêts du câble ---------- */
 .stop { padding: clamp(90px, 15vh, 170px) 0 0; }
@@ -142,23 +142,26 @@ em { font-style: italic; }
   </svg>
 
   <div class="top">
-    <span>debian-rebuild</span>
+    <span>debian-rebuild · octobre 2026</span>
     <a href="https://github.com/Ybucaille/debian-rebuild">github ↗</a>
   </div>
 
   <header class="hero">
     <div class="origin"><span class="anchor" data-anchor="start"></span>VM deb-rebuild · 192.168.122.40</div>
-    <h1>Une commande.<br><em>Un serveur neuf.</em></h1>
-    <p class="lead">Un script détruit un serveur Debian 13, le recrée, le configure, le sécurise et vérifie le tout avec 22 tests. Sans aucune intervention manuelle. Suivez le câble, il fait le même trajet que les paquets.</p>
-    <div class="cmd">scripts/rebuild.sh</div>
+    <h1>Un serveur Debian,<br><em>reconstruit en une commande.</em></h1>
+    <p class="lead">Un script détruit une VM Debian 13, la recrée, la configure, la sécurise puis vérifie le résultat avec 22 tests, sans intervention manuelle. Je l'ai écrit pendant ma formation TSSR pour m'exercer sur la virtualisation et surtout sur le réseau, la partie que je maîtrisais le moins.</p>
+<pre class="run-out"><span class="p">$</span> scripts/rebuild.sh
+>> Destruction : 1 s
+>> Déploiement : 139 s
+>> Tests : 10 s
+Reconstruction complète et testée en 2 min 30 s.</pre>
   </header>
 
   <section class="stop">
     <div class="run"><h2>La matière première</h2><span class="tag">debian-13-genericcloud · sha512 ✓</span></div>
     <div class="body">
       <p class="span-6 reveal">Tout part de l'image cloud officielle de Debian 13. Avant de s'en servir, le script vérifie sa somme SHA512 contre celle que publie Debian.</p>
-      <p class="span-5 push-8 aside reveal">Le disque de la VM est <em>adossé</em> à l'image : il n'enregistre que les différences. L'image, elle, n'est jamais modifiée. Détruire la VM ne coûte donc rien.</p>
-      <div class="span-5 push-1 figure reveal">341 Mo<small>l'image de base, partagée par toutes les reconstructions</small></div>
+      <p class="span-5 push-8 aside reveal">Le disque de la VM est <em>adossé</em> à l'image (341 Mo) : il n'enregistre que les différences, et l'image n'est jamais modifiée. Chaque reconstruction repart donc de la même base, sans rien retélécharger.</p>
     </div>
   </section>
 
@@ -173,43 +176,44 @@ em { font-style: italic; }
   <section class="stop">
     <div class="run"><h2>Assemblée au premier démarrage</h2><span class="tag">cloud-init</span></div>
     <div class="body">
-      <p class="span-5 reveal">Au premier démarrage, cloud-init lit un seul fichier texte et fait tout le reste : le compte d'administration, les mises à jour, les paquets, la configuration. Ce fichier est versionné : deux reconstructions donnent le même serveur.</p>
-<pre class="span-6 push-7 yaml reveal"><span class="k">users:</span>
+      <p class="span-5 reveal">Au premier démarrage, cloud-init lit un seul fichier texte et fait tout le reste : le compte d'administration, les mises à jour, les paquets, la configuration. Ce fichier est versionné dans le dépôt : chaque reconstruction applique exactement la même configuration.</p>
+<pre class="span-6 push-7 yaml reveal"><span class="c"># extrait de cloud-init/user-data.yaml</span>
+<span class="k">users:</span>
   - name: admin
-    lock_passwd: true      <span class="c"># pas de mot de passe</span>
+    sudo: "ALL=(ALL) ALL"     <span class="c"># mot de passe exigé</span>
+    lock_passwd: false
+    hashed_passwd: "…"        <span class="c"># généré au déploiement</span>
     ssh_authorized_keys: […]
 <span class="k">disable_root:</span> true
-<span class="k">ssh_pwauth:</span> false
-<span class="k">package_upgrade:</span> true
-<span class="k">packages:</span> [nftables, fail2ban,
-  unattended-upgrades, nginx]</pre>
+<span class="k">ssh_pwauth:</span> false          <span class="c"># SSH par clé seulement</span>
+<span class="k">package_upgrade:</span> true</pre>
     </div>
   </section>
 
   <section class="stop from-right">
-    <div class="run"><h2>Tout est fermé, sauf trois portes</h2><span class="tag">nftables · policy drop</span></div>
+    <div class="run"><h2>Le pare-feu</h2><span class="tag">nftables · policy drop</span></div>
     <div class="body">
       <div class="span-7 push-6 doors reveal">
         <span>22<small>ssh</small></span>
         <span>80<small>http</small></span>
         <span>ping</span>
-        <span class="closed">8080</span>
+        <span class="closed">8080<small>fermé</small></span>
       </div>
-      <p class="span-6 push-7 reveal">Le pare-feu refuse tout ce qui entre, puis ouvre seulement SSH, HTTP et le ping. SSH n'accepte que les clés : ni root, ni mot de passe. Une fois connecté, <code>sudo</code> redemande un mot de passe pour tout. fail2ban bannit une adresse pendant une heure après trois échecs en dix minutes. Les mises à jour de sécurité s'installent seules.</p>
+      <p class="span-6 push-7 reveal">nftables refuse tout ce qui entre, puis ouvre seulement SSH, HTTP et le ping. Le 8080 barré est le port que les tests utilisent pour vérifier ce blocage. SSH n'accepte que les clés : ni root, ni mot de passe. Une fois connecté, <code>sudo</code> redemande un mot de passe pour tout. fail2ban bannit une adresse pendant une heure après trois échecs en dix minutes. Les mises à jour de sécurité s'installent seules.</p>
     </div>
   </section>
 
   <section class="stop from-right">
-    <div class="run"><h2>Durci, et mesuré</h2><span class="tag">lynis audit system</span></div>
+    <div class="run"><h2>L'audit Lynis</h2><span class="tag">lynis audit system</span></div>
     <div class="body">
       <div class="span-7 figure reveal">67 <span style="color:var(--cable)">→ 84</span><small>note de durcissement Lynis, sur 100 : avant, puis après</small></div>
-      <p class="span-5 reveal">Lynis audite le serveur et lui donne une note. J'ai mesuré la VM avant de la durcir, puis après : réglages du noyau, modules inutiles bloqués, journal d'audit, SSH resserré, <code>sudo</code> protégé par mot de passe, politique de comptes plus stricte.</p>
+      <p class="span-5 reveal">Lynis est un outil d'audit qui note le durcissement d'un système Linux. J'ai audité la VM avant de la durcir, puis après avoir ajouté : réglages du noyau, modules inutiles bloqués, journal d'audit, SSH resserré, <code>sudo</code> protégé par mot de passe, politique de comptes plus stricte.</p>
       <p class="span-6 push-7 aside reveal">Certaines suggestions sont écartées volontairement, comme changer le port SSH : cela cache le service sans le protéger. La liste et les raisons sont dans le README.</p>
     </div>
   </section>
 
   <section class="stop" id="tests">
-    <div class="run"><h2>Vingt-deux contrôles</h2><span class="tag">test.sh</span></div>
+    <div class="run"><h2>Les 22 tests</h2><span class="tag">test.sh</span></div>
     <div class="body">
       <div class="span-5 figure reveal">22/22<small>tests réussis, depuis l'hôte et depuis la VM</small></div>
       <div class="span-7 checks" id="checks">
@@ -250,7 +254,7 @@ em { font-style: italic; }
       </div>
       <div class="span-5 strike reveal">20/22</div>
       <div class="span-7 reveal">
-        <p style="margin-bottom:16px">Un test qui passe toujours ne prouve rien. Alors j'ai vidé les règles du pare-feu de la VM et relancé les tests. Deux tombent, exactement ceux qui doivent tomber :</p>
+        <p style="margin-bottom:16px">Pour vérifier que les tests détectent vraiment un problème, j'ai vidé les règles du pare-feu de la VM et je les ai relancés. Les deux tests du pare-feu échouent, les autres passent :</p>
 <pre class="counter">$ sudo nft flush ruleset
 $ scripts/test.sh
 <span class="ko">[ÉCHEC] nftables actif, politique d'entrée à drop
@@ -261,7 +265,7 @@ $ scripts/test.sh
   </section>
 
   <section class="stop from-right">
-    <div class="run"><h2>Sortir, oui. Entrer, non.</h2><span class="tag">NAT · masquerade</span></div>
+    <div class="run"><h2>Le NAT, dans les deux sens</h2><span class="tag">NAT · masquerade</span></div>
     <div class="body">
       <p class="span-7 push-6 bigmono reveal">192.168.122.40 <span class="arrow">→</span> 192.168.0.33 <span class="arrow">→</span> IP publique de la box</p>
       <p class="span-6 push-7 reveal">Quand la VM télécharge ses mises à jour, son adresse est réécrite deux fois : par l'hôte, puis par la box. Le serveur de Debian ne voit que l'adresse publique de la box.</p>
@@ -270,7 +274,7 @@ $ scripts/test.sh
   </section>
 
   <section class="stop">
-    <div class="run"><h2>Trois reconstructions</h2><span class="tag">rebuild.sh · chronométré</span></div>
+    <div class="run"><h2>Durées mesurées</h2><span class="tag">rebuild.sh · chronométré</span></div>
     <div class="body">
       <div class="span-7 push-1 lots reveal" style="grid-column-end: span 11">
         <div class="lot">2:30<small>essai 1</small></div>
@@ -282,7 +286,7 @@ $ scripts/test.sh
   </section>
 
   <section class="stop from-right">
-    <div class="run"><h2>Ce qui a cassé en route</h2><span class="tag">journal</span></div>
+    <div class="run"><h2>Problèmes rencontrés</h2><span class="tag">et leurs correctifs</span></div>
     <div class="notes">
       <div class="note reveal"><span class="n">1</span><div><h3>Redémarrage en boucle</h3><p>En BIOS, la VM redémarrait juste après GRUB, sans jamais charger le noyau.</p><p class="fix">Démarrage en UEFI.</p></div></div>
       <div class="note reveal"><span class="n">2</span><div><h3>Volume introuvable</h3><p>libvirt ne voit pas un fichier ajouté à un pool tant que la liste n'a pas été relue.</p><p class="fix"><code>virsh pool-refresh</code> avant de créer le disque.</p></div></div>
@@ -302,6 +306,8 @@ $ scripts/test.sh
 cd debian-rebuild
 scripts/rebuild.sh</pre>
         <div class="links"><a href="https://github.com/Ybucaille/debian-rebuild">Le code</a><a href="https://github.com/Ybucaille/debian-rebuild/blob/main/cloud-init/user-data.yaml">La config cloud-init</a></div>
+        <h3 style="margin-top:40px">Pistes d'amélioration</h3>
+        <p>Plusieurs suggestions de Lynis restent ouvertes : un contrôle d'intégrité des fichiers (AIDE), ou des journaux envoyés vers une deuxième machine. La même configuration pourrait aussi être écrite avec Ansible, pour comparer les deux approches.</p>
       </div>
       <div style="grid-column: 8 / span 5" class="reveal">
         <h3>Qui l'a fait</h3>
