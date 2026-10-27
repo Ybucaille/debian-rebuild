@@ -1,17 +1,20 @@
 #cloud-config
 # Configuration appliquée par cloud-init au premier démarrage de la VM.
-# Le marqueur de clé SSH plus bas est remplacé par la clé publique de l'admin au déploiement.
+# Les marqueurs __SSH_KEY__ et __ADMIN_PASSWORD_HASH__ sont remplacés au déploiement.
 
 hostname: deb-rebuild
+fqdn: deb-rebuild.lab
+manage_etc_hosts: true
 timezone: Europe/Paris
 
-# Un seul compte, accessible uniquement par clé SSH.
+# Un seul compte. SSH uniquement par clé ; le mot de passe ne sert qu'à sudo.
 users:
   - name: admin
     groups: [sudo]
     shell: /bin/bash
-    sudo: "ALL=(ALL) NOPASSWD:ALL"
-    lock_passwd: true
+    sudo: "ALL=(ALL) ALL"
+    lock_passwd: false
+    hashed_passwd: "__ADMIN_PASSWORD_HASH__"
     ssh_authorized_keys:
       - __SSH_KEY__
 disable_root: true
@@ -25,11 +28,24 @@ packages:
   - python3-systemd
   - unattended-upgrades
   - nginx
+  # journal d'audit, comptabilité des processus, statistiques système
+  - auditd
+  - acct
+  - sysstat
+  # PAM : répertoire temporaire par utilisateur, mots de passe robustes
+  - libpam-tmpdir
+  - libpam-passwdqc
+  # suivi des paquets et des services à redémarrer après une mise à jour
+  - needrestart
+  - debsums
+  - apt-show-versions
+  # audit de sécurité
+  - lynis
 
 # defer: true écrit ces fichiers après l'installation des paquets,
 # pour ne pas entrer en conflit avec les fichiers fournis par les paquets.
 write_files:
-  # Durcissement SSH : pas de root, pas de mot de passe, seul admin entre.
+  # SSH : pas de root, pas de mot de passe, seul admin entre, aucun transfert.
   - path: /etc/ssh/sshd_config.d/10-hardening.conf
     defer: true
     content: |
@@ -38,6 +54,14 @@ write_files:
       KbdInteractiveAuthentication no
       AllowUsers admin
       MaxAuthTries 3
+      MaxSessions 2
+      AllowTcpForwarding no
+      AllowAgentForwarding no
+      X11Forwarding no
+      TCPKeepAlive no
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+      LogLevel VERBOSE
 
   # Pare-feu : tout ce qui entre est refusé, sauf ce qui est listé.
   - path: /etc/nftables.conf
@@ -65,7 +89,7 @@ write_files:
       }
 
   # fail2ban lit le journal systemd (Debian 13 n'a plus de /var/log/auth.log).
-  - path: /etc/fail2ban/jail.d/sshd.local
+  - path: /etc/fail2ban/jail.local
     defer: true
     content: |
       [sshd]
@@ -82,7 +106,85 @@ write_files:
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
 
+  # Noyau : ignorer les redirections et les adresses usurpées, journaliser
+  # les paquets impossibles, cacher les adresses mémoire du noyau.
+  - path: /etc/sysctl.d/90-hardening.conf
+    defer: true
+    content: |
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.default.rp_filter = 1
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.default.accept_redirects = 0
+      net.ipv6.conf.all.accept_redirects = 0
+      net.ipv6.conf.default.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.default.send_redirects = 0
+      net.ipv4.conf.all.log_martians = 1
+      net.ipv4.conf.default.log_martians = 1
+      kernel.kptr_restrict = 2
+      kernel.sysrq = 0
+      kernel.yama.ptrace_scope = 1
+      kernel.unprivileged_bpf_disabled = 1
+      net.core.bpf_jit_harden = 2
+      dev.tty.ldisc_autoload = 0
+      fs.protected_fifos = 2
+
+  # Modules inutiles sur ce serveur : stockage USB et firewire, protocoles réseau
+  # rares, et iptables (le pare-feu passe par nftables).
+  - path: /etc/modprobe.d/90-hardening.conf
+    defer: true
+    content: |
+      install usb-storage /bin/false
+      install firewire-core /bin/false
+      install dccp /bin/false
+      install sctp /bin/false
+      install rds /bin/false
+      install tipc /bin/false
+      install ip_tables /bin/false
+
+  # auditd : trace toute modification des comptes, de sudo, de SSH et du pare-feu.
+  - path: /etc/audit/rules.d/90-hardening.rules
+    defer: true
+    content: |
+      -w /etc/passwd -p wa -k comptes
+      -w /etc/shadow -p wa -k comptes
+      -w /etc/group -p wa -k comptes
+      -w /etc/sudoers -p wa -k sudo
+      -w /etc/sudoers.d/ -p wa -k sudo
+      -w /etc/ssh/sshd_config -p wa -k ssh
+      -w /etc/ssh/sshd_config.d/ -p wa -k ssh
+      -w /etc/nftables.conf -p wa -k parefeu
+
+  # Bannières affichées avant la connexion.
+  - path: /etc/issue
+    defer: true
+    content: |
+      Accès réservé aux personnes autorisées. Toute connexion est journalisée.
+      Authorized access only. All connections are monitored and logged.
+  - path: /etc/issue.net
+    defer: true
+    content: |
+      Accès réservé aux personnes autorisées. Toute connexion est journalisée.
+      Authorized access only. All connections are monitored and logged.
+
 runcmd:
+  - sysctl --system
+  - modprobe -r ip_tables || true
+  # Comptes : umask 027, hachage renforcé, durée de vie des mots de passe.
+  - sed -i 's/^UMASK.*/UMASK 027/' /etc/login.defs
+  - grep -q '^UMASK' /etc/login.defs || echo 'UMASK 027' >> /etc/login.defs
+  - chage --maxdays 365 --mindays 1 admin
+  - sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS 365/; s/^PASS_MIN_DAYS.*/PASS_MIN_DAYS 1/' /etc/login.defs
+  - grep -q '^SHA_CRYPT_MIN_ROUNDS' /etc/login.defs || echo 'SHA_CRYPT_MIN_ROUNDS 65536' >> /etc/login.defs
+  # Fichiers sensibles lisibles par root seulement.
+  - chmod 0400 /boot/grub/grub.cfg
+  - chmod 0600 /etc/ssh/sshd_config
+  - chmod 0700 /etc/cron.d /etc/cron.daily /etc/cron.weekly /etc/cron.monthly
+  # debsums vérifie chaque semaine que les fichiers des paquets n'ont pas été modifiés.
+  - sed -i 's/^CRON_CHECK=.*/CRON_CHECK=weekly/' /etc/default/debsums
+  - sed -i 's/^ENABLED=.*/ENABLED="true"/' /etc/default/sysstat
+  - systemctl enable --now sysstat
+  - augenrules --load
   - systemctl enable --now nftables
   - systemctl restart ssh
   - systemctl enable --now fail2ban

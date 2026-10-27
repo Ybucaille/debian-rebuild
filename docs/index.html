@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>debian-rebuild : une commande, un serveur neuf</title>
-<meta name="description" content="Un serveur Debian 13 durci, détruit, recréé et contrôlé par 15 tests en une seule commande. KVM, libvirt, cloud-init, nftables.">
+<meta name="description" content="Un serveur Debian 13 durci, détruit, recréé et contrôlé par 22 tests en une seule commande. KVM, libvirt, cloud-init, nftables.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -75,14 +75,15 @@ em { font-style: italic; }
 .doors .closed { color: var(--hair); text-decoration: line-through; text-decoration-thickness: 2px; }
 
 /* tests */
-.checks { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 40px; font-size: 15px; }
+.checks { columns: 2; column-gap: 40px; font-size: 15px; }
+.checks .grpblock { break-inside: avoid; }
+.checks ul { list-style: none; margin: 0; padding: 0; }
 .checks li { break-inside: avoid; padding: 7px 0 7px 30px; position: relative; }
 .checks li::before { content: ""; position: absolute; left: 0; top: 15px; width: 16px; height: 2px; background: var(--hair); transition: background .3s; }
 .checks li::after { content: ""; position: absolute; left: 5px; top: 9px; width: 6px; height: 11px; border: solid var(--cable); border-width: 0 2px 2px 0; transform: rotate(45deg) scale(0); transition: transform .3s cubic-bezier(.3,1.6,.5,1); }
 .checks li.ok::before { background: transparent; }
 .checks li.ok::after { transform: rotate(45deg) scale(1); }
-.checks .grp { font: 500 11.5px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .1em; padding-left: 0; padding-top: 14px; }
-.checks .grp::before, .checks .grp::after { content: none; }
+.checks .grp { font: 500 11.5px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .1em; margin: 0; padding-top: 14px; }
 .counter { font: 400 15px/1.5 var(--mono); margin: 0; white-space: pre-wrap; }
 .counter .ko { color: var(--refuse); }
 .strike { font: 400 clamp(64px, 9vw, 132px)/.85 var(--serif); letter-spacing: -.03em; color: var(--refuse); }
@@ -148,7 +149,7 @@ em { font-style: italic; }
   <header class="hero">
     <div class="origin"><span class="anchor" data-anchor="start"></span>VM deb-rebuild · 192.168.122.40</div>
     <h1>Une commande.<br><em>Un serveur neuf.</em></h1>
-    <p class="lead">Un script détruit un serveur Debian 13, le recrée, le configure, le sécurise et vérifie le tout avec 15 tests. Sans aucune intervention manuelle. Suivez le câble, il fait le même trajet que les paquets.</p>
+    <p class="lead">Un script détruit un serveur Debian 13, le recrée, le configure, le sécurise et vérifie le tout avec 22 tests. Sans aucune intervention manuelle. Suivez le câble, il fait le même trajet que les paquets.</p>
     <div class="cmd">scripts/rebuild.sh</div>
   </header>
 
@@ -194,43 +195,67 @@ em { font-style: italic; }
         <span>ping</span>
         <span class="closed">8080</span>
       </div>
-      <p class="span-6 push-7 reveal">Le pare-feu refuse tout ce qui entre, puis ouvre seulement SSH, HTTP et le ping. SSH n'accepte que les clés : ni root, ni mot de passe. fail2ban bannit une adresse pendant une heure après trois échecs en dix minutes. Les mises à jour de sécurité s'installent seules.</p>
+      <p class="span-6 push-7 reveal">Le pare-feu refuse tout ce qui entre, puis ouvre seulement SSH, HTTP et le ping. SSH n'accepte que les clés : ni root, ni mot de passe. Une fois connecté, <code>sudo</code> redemande un mot de passe pour tout. fail2ban bannit une adresse pendant une heure après trois échecs en dix minutes. Les mises à jour de sécurité s'installent seules.</p>
+    </div>
+  </section>
+
+  <section class="stop from-right">
+    <div class="run"><h2>Durci, et mesuré</h2><span class="tag">lynis audit system</span></div>
+    <div class="body">
+      <div class="span-7 figure reveal">67 <span style="color:var(--cable)">→ 84</span><small>note de durcissement Lynis, sur 100 : avant, puis après</small></div>
+      <p class="span-5 reveal">Lynis audite le serveur et lui donne une note. J'ai mesuré la VM avant de la durcir, puis après : réglages du noyau, modules inutiles bloqués, journal d'audit, SSH resserré, <code>sudo</code> protégé par mot de passe, politique de comptes plus stricte.</p>
+      <p class="span-6 push-7 aside reveal">Certaines suggestions sont écartées volontairement, comme changer le port SSH : cela cache le service sans le protéger. La liste et les raisons sont dans le README.</p>
     </div>
   </section>
 
   <section class="stop" id="tests">
-    <div class="run"><h2>Quinze contrôles</h2><span class="tag">test.sh</span></div>
+    <div class="run"><h2>Vingt-deux contrôles</h2><span class="tag">test.sh</span></div>
     <div class="body">
-      <div class="span-5 figure reveal">15/15<small>tests réussis, depuis l'hôte et depuis la VM</small></div>
-      <ul class="span-7 checks" id="checks">
-        <li class="grp">Réseau</li>
-        <li>La VM a l'IP réservée 192.168.122.40</li>
-        <li>La VM répond au ping</li>
-        <li>La VM sort sur Internet via le NAT</li>
-        <li>La VM résout les noms DNS</li>
-        <li class="grp">SSH</li>
-        <li>SSH par clé fonctionne pour admin</li>
-        <li>Pas d'authentification par mot de passe</li>
-        <li>Connexion root refusée</li>
-        <li>sshd : PermitRootLogin et PasswordAuthentication à no</li>
-        <li class="grp">Pare-feu</li>
-        <li>nftables actif, politique d'entrée à drop</li>
-        <li>HTTP (80) ouvert, la page d'état répond</li>
-        <li>Port 8080 joignable depuis la VM elle-même</li>
-        <li>Port 8080 bloqué depuis l'hôte</li>
-        <li class="grp">Sécurité</li>
-        <li>fail2ban surveille sshd</li>
-        <li>Mises à jour de sécurité automatiques</li>
-        <li>Aucune mise à jour en attente</li>
-      </ul>
-      <div class="span-5 strike reveal">13/15</div>
+      <div class="span-5 figure reveal">22/22<small>tests réussis, depuis l'hôte et depuis la VM</small></div>
+      <div class="span-7 checks" id="checks">
+        <div class="grpblock"><p class="grp">Réseau</p><ul>
+          <li>La VM a l'IP réservée 192.168.122.40</li>
+          <li>La VM répond au ping</li>
+          <li>La VM sort sur Internet via le NAT</li>
+          <li>La VM résout les noms DNS</li>
+        </ul></div>
+        <div class="grpblock"><p class="grp">SSH</p><ul>
+          <li>SSH par clé fonctionne pour admin</li>
+          <li>Pas d'authentification par mot de passe</li>
+          <li>Connexion root refusée</li>
+          <li>sshd : PermitRootLogin et PasswordAuthentication à no</li>
+          <li>Aucun transfert de ports, d'agent ni d'affichage X11</li>
+        </ul></div>
+        <div class="grpblock"><p class="grp">Privilèges</p><ul>
+          <li>sudo refusé sans mot de passe</li>
+          <li>sudo accepté avec le mot de passe d'admin</li>
+        </ul></div>
+        <div class="grpblock"><p class="grp">Pare-feu</p><ul>
+          <li>nftables actif, politique d'entrée à drop</li>
+          <li>HTTP (80) ouvert, la page d'état répond</li>
+          <li>Port 8080 joignable depuis la VM elle-même</li>
+          <li>Port 8080 bloqué depuis l'hôte</li>
+        </ul></div>
+        <div class="grpblock"><p class="grp">Sécurité</p><ul>
+          <li>fail2ban surveille sshd</li>
+          <li>Mises à jour de sécurité automatiques</li>
+          <li>Aucune mise à jour en attente</li>
+        </ul></div>
+        <div class="grpblock"><p class="grp">Système</p><ul>
+          <li>Noyau : anti-usurpation, redirections refusées</li>
+          <li>Modules inutiles bloqués</li>
+          <li>AppArmor actif</li>
+          <li>auditd surveille comptes, sudo, SSH, pare-feu</li>
+        </ul></div>
+      </div>
+      <div class="span-5 strike reveal">20/22</div>
       <div class="span-7 reveal">
         <p style="margin-bottom:16px">Un test qui passe toujours ne prouve rien. Alors j'ai vidé les règles du pare-feu de la VM et relancé les tests. Deux tombent, exactement ceux qui doivent tomber :</p>
 <pre class="counter">$ sudo nft flush ruleset
 $ scripts/test.sh
 <span class="ko">[ÉCHEC] nftables actif, politique d'entrée à drop
 [ÉCHEC] Port 8080 bloqué depuis l'hôte par le pare-feu</span>
-13 tests réussis, 2 en échec.</pre>
+20 tests réussis, 2 en échec.</pre>
       </div>
     </div>
   </section>
@@ -245,16 +270,14 @@ $ scripts/test.sh
   </section>
 
   <section class="stop">
-    <div class="run"><h2>Cinq reconstructions</h2><span class="tag">rebuild.sh · chronométré</span></div>
+    <div class="run"><h2>Trois reconstructions</h2><span class="tag">rebuild.sh · chronométré</span></div>
     <div class="body">
       <div class="span-7 push-1 lots reveal" style="grid-column-end: span 11">
-        <div class="lot">1:31<small>lot 1</small></div>
-        <div class="lot">1:03<small>lot 2</small></div>
-        <div class="lot">1:03<small>lot 3</small></div>
-        <div class="lot fast">0:39<small>lot 4</small></div>
-        <div class="lot">1:36<small>lot 5</small></div>
+        <div class="lot">2:30<small>essai 1</small></div>
+        <div class="lot">2:07<small>essai 2</small></div>
+        <div class="lot fast">1:38<small>essai 3</small></div>
       </div>
-      <p class="span-6 push-1 aside reveal">Destruction, création, configuration et 15 tests, de bout en bout, sur un i7-11800H. L'écart vient surtout du téléchargement des paquets Debian.</p>
+      <p class="span-6 push-1 aside reveal">Version durcie : destruction, création, configuration et 22 tests, de bout en bout, sur un i7-11800H. L'écart vient surtout du téléchargement des paquets Debian.</p>
     </div>
   </section>
 
@@ -265,6 +288,7 @@ $ scripts/test.sh
       <div class="note reveal"><span class="n">2</span><div><h3>Volume introuvable</h3><p>libvirt ne voit pas un fichier ajouté à un pool tant que la liste n'a pas été relue.</p><p class="fix"><code>virsh pool-refresh</code> avant de créer le disque.</p></div></div>
       <div class="note reveal"><span class="n">3</span><div><h3>SSH coupé en route</h3><p>cloud-init redémarre sshd en fin de configuration, et la connexion du script tombait.</p><p class="fix">Le script réessaie tant que la connexion est coupée.</p></div></div>
       <div class="note reveal"><span class="n">4</span><div><h3>Image de base effacée</h3><p><code>--remove-all-storage</code> supprime tous les disques rattachés à la VM, pas seulement le sien. Il a effacé l'image Debian.</p><p class="fix">destroy.sh ne supprime plus que le disque qu'il a créé.</p></div></div>
+      <div class="note reveal"><span class="n">5</span><div><h3>Correctifs sans effet</h3><p>Debian 13 n'a plus de ligne <code>UMASK</code> dans <code>login.defs</code> : mon <code>sed</code> ne changeait rien. L'audit Lynis l'a révélé.</p><p class="fix">Ajouter la ligne si elle manque, et toujours remesurer.</p></div></div>
     </div>
   </section>
 
@@ -372,7 +396,7 @@ scripts/rebuild.sh</pre>
   const io = new IntersectionObserver(es => es.forEach(e => {
     if (!e.isIntersecting) return;
     if (e.target.id === "checks") {
-      [...e.target.querySelectorAll("li:not(.grp)")].forEach((li, i) =>
+      [...e.target.querySelectorAll("li")].forEach((li, i) =>
         setTimeout(() => li.classList.add("ok"), reduce ? 0 : 120 * i));
     } else e.target.classList.add("in");
     io.unobserve(e.target);

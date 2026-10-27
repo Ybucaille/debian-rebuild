@@ -16,10 +16,16 @@ BASE_IMAGE=$HOME/Documents/autres/iso/debian-13-genericcloud-amd64.qcow2
 BUILD_DIR=build
 LAB_KEY=$BUILD_DIR/lab_ed25519
 KNOWN_HOSTS=$BUILD_DIR/known_hosts
+ADMIN_PASSWORD_FILE=$BUILD_DIR/admin_password
 
 # ssh vers la VM avec la clé de labo (sans passphrase, ne sert qu'ici).
 vm_ssh() {
   /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=5 \
     -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$KNOWN_HOSTS" \
     -i "$LAB_KEY" "admin@$VM_IP" "$@"
+}
+
+# sudo dans la VM : le mot de passe d'admin passe par l'entrée standard, dans le canal SSH chiffré.
+vm_sudo() {
+  vm_ssh "sudo -S -p '' $*" < "$ADMIN_PASSWORD_FILE"
 }

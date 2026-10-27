@@ -9,6 +9,12 @@ mkdir -p "$BUILD_DIR"
 # Clé SSH dédiée au labo, générée une seule fois.
 [[ -f $LAB_KEY ]] || ssh-keygen -q -t ed25519 -N "" -C "debian-rebuild-lab" -f "$LAB_KEY"
 
+# Mot de passe d'admin, utilisé uniquement par sudo (SSH n'accepte que les clés).
+if [[ ! -f $ADMIN_PASSWORD_FILE ]]; then
+  (umask 077; openssl rand -base64 24 > "$ADMIN_PASSWORD_FILE")
+fi
+password_hash=$(openssl passwd -6 -stdin < "$ADMIN_PASSWORD_FILE")
+
 # Clés autorisées sur la VM : la clé de labo, plus la clé personnelle si elle existe.
 keys=("$(cat "$LAB_KEY.pub")")
 [[ -f $HOME/.ssh/id_ed25519.pub ]] && keys+=("$(cat "$HOME/.ssh/id_ed25519.pub")")
@@ -16,7 +22,7 @@ while IFS= read -r line; do
   if [[ $line == *__SSH_KEY__* ]]; then
     for k in "${keys[@]}"; do echo "${line/__SSH_KEY__/$k}"; done
   else
-    echo "$line"
+    echo "${line/__ADMIN_PASSWORD_HASH__/$password_hash}"
   fi
 done < cloud-init/user-data.yaml > "$BUILD_DIR/user-data.yaml"
 
