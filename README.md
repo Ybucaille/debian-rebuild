@@ -2,6 +2,8 @@
 
 Un serveur Debian 13 durci, créé et configuré entièrement par script sous KVM/libvirt, puis vérifié par une batterie de tests. On peut le détruire et le reconstruire à l'identique en une commande.
 
+Présentation : https://ybucaille.github.io/debian-rebuild/
+
 ```
 scripts/rebuild.sh
 ```

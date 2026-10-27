@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>debian-rebuild : un serveur Debian fabriqué à la chaîne</title>
+<meta name="description" content="Un serveur Debian 13 durci, détruit, recréé et contrôlé par 15 tests en une seule commande. KVM, libvirt, cloud-init, nftables.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;900&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #ece6d6;
+  --paper-2: #e2dac6;
+  --sheet: #f6f2e7;
+  --ink: #1c211e;
+  --ink-soft: #545a54;
+  --line: #b9b19c;
+  --machine: #26493c;
+  --machine-2: #1b362c;
+  --machine-light: #3b6b58;
+  --hazard: #f1b31c;
+  --reject: #b8322a;
+  --display: "Big Shoulders Display", "Arial Narrow", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 15px/1.6 var(--mono);
+  /* grain léger de papier */
+  background-image: radial-gradient(rgba(28,33,30,.05) 1px, transparent 1px);
+  background-size: 4px 4px;
+}
+a { color: inherit; }
+.hazard {
+  height: 14px;
+  background: repeating-linear-gradient(-45deg, var(--hazard) 0 14px, var(--ink) 14px 28px);
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+/* ---------- En-tête ---------- */
+header.top { background: var(--machine); color: var(--sheet); }
+.plate {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  padding: 14px 0; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+}
+.plate .rivets { display: flex; gap: 10px; align-items: center; }
+.rivet { width: 9px; height: 9px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #9fb5aa, #1b362c 70%); }
+.plate a { text-decoration: none; border-bottom: 1px solid rgba(246,242,231,.4); }
+.hero { padding: 56px 0 40px; }
+.hero .ref { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--hazard); }
+.hero h1 {
+  font: 900 clamp(56px, 12vw, 148px)/.86 var(--display);
+  margin: 12px 0 18px; letter-spacing: -.01em; text-transform: uppercase;
+}
+.hero h1 span { color: var(--hazard); }
+.hero p.lead { max-width: 640px; font-size: 17px; margin: 0; color: #dfe7e1; }
+.hero .cmd {
+  display: inline-flex; margin-top: 28px; background: var(--machine-2);
+  border: 1px solid var(--machine-light); padding: 12px 18px; font-size: 15px;
+}
+.hero .cmd::before { content: "$"; color: var(--hazard); margin-right: 12px; }
+
+/* ---------- Chaîne animée ---------- */
+.line-wrap { background: var(--machine-2); padding: 24px 0 10px; }
+#chaine { display: block; width: 100%; height: auto; }
+#chaine .label { font: 600 13px var(--mono); fill: #9fb5aa; letter-spacing: .06em; }
+#chaine .num { font: 700 26px var(--display); fill: #3b6b58; }
+#chaine .station .lamp { fill: #2e4a40; transition: fill .2s; }
+#chaine .station.on .lamp { fill: var(--hazard); }
+#chaine .station.on .label { fill: var(--sheet); }
+#chaine .station.on .num { fill: var(--hazard); }
+#chaine .station.done .lamp { fill: #7fbf9a; }
+#chaine .stamp { opacity: 0; transform-box: fill-box; transform-origin: center; }
+#chaine .stamp.hit { animation: stamp .35s cubic-bezier(.2,1.6,.4,1) forwards; }
+@keyframes stamp { from { opacity: 0; transform: scale(2.4) rotate(-14deg); } to { opacity: 1; transform: scale(1) rotate(-8deg); } }
+.line-caption {
+  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  color: #9fb5aa; font-size: 12px; padding: 10px 0 0;
+}
+
+/* ---------- Sections ---------- */
+section { padding: 72px 0 0; }
+.sec-head { display: flex; align-items: baseline; gap: 16px; border-bottom: 3px solid var(--ink); padding-bottom: 10px; margin-bottom: 28px; }
+.sec-head .n { font: 900 44px/1 var(--display); color: var(--machine); }
+.sec-head h2 { font: 800 clamp(30px, 5vw, 44px)/1 var(--display); text-transform: uppercase; margin: 0; letter-spacing: .01em; }
+.sec-head .side { margin-left: auto; font-size: 12px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .1em; }
+.intro { max-width: 720px; margin: 0 0 28px; }
+
+/* Postes */
+.postes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; border: 2px solid var(--ink); background: var(--sheet); }
+@media (min-width: 1000px) { .postes { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.poste { padding: 20px 18px 22px; border-right: 1px dashed var(--line); border-bottom: 1px dashed var(--line); position: relative; }
+.poste .tag { display: inline-block; font: 700 13px var(--mono); background: var(--ink); color: var(--hazard); padding: 2px 8px; letter-spacing: .08em; }
+.poste h3 { font: 800 26px/1.05 var(--display); text-transform: uppercase; margin: 14px 0 10px; }
+.poste p { margin: 0 0 12px; font-size: 14px; }
+.poste code { font-size: 12.5px; background: var(--paper-2); padding: 1px 5px; word-break: break-word; }
+
+/* Fiche de contrôle */
+.controle { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+.fiche { background: var(--sheet); border: 2px solid var(--ink); position: relative; overflow: hidden; padding-bottom: 78px; }
+.fiche ol { border-bottom: 1px dashed var(--line); }
+.fiche-head { display: flex; justify-content: space-between; padding: 10px 16px; border-bottom: 2px solid var(--ink); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; }
+.fiche ol { list-style: none; margin: 0; padding: 0; counter-reset: t; }
+.fiche li {
+  counter-increment: t; display: grid; grid-template-columns: 34px minmax(0, 1fr) 64px; overflow-wrap: anywhere; gap: 10px; align-items: center;
+  padding: 8px 16px; border-bottom: 1px dashed var(--line); font-size: 13.5px;
+}
+.fiche li:last-child { border-bottom: 0; }
+.fiche li.grp::before { content: none; }
+.fiche li::before { content: counter(t, decimal-leading-zero); color: var(--ink-soft); font-size: 12px; }
+.fiche li .st { justify-self: end; font-weight: 600; font-size: 12px; letter-spacing: .08em; color: var(--machine); opacity: 0; transform: translateX(-6px); transition: opacity .25s, transform .25s; }
+.fiche li.ok .st { opacity: 1; transform: none; }
+.fiche li .st::before { content: "■ "; }
+.fiche li.grp { display: block; counter-increment: none; padding: 6px 16px; background: var(--paper-2); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-soft); border-bottom: 1px dashed var(--line); }
+.big-stamp {
+  position: absolute; right: 22px; bottom: 12px; pointer-events: none;
+  border: 4px double var(--machine); color: var(--machine); padding: 6px 14px;
+  font: 900 34px/1 var(--display); text-transform: uppercase; letter-spacing: .04em;
+  transform: rotate(-8deg) scale(2); opacity: 0; transition: opacity .2s, transform .35s cubic-bezier(.2,1.6,.4,1);
+  background: rgba(246,242,231,.85);
+}
+.big-stamp small { display: block; font: 500 11px var(--mono); letter-spacing: .1em; }
+.fiche.done .big-stamp { opacity: .92; transform: rotate(-8deg) scale(1); }
+
+.contre {
+  background: var(--ink); color: var(--sheet); padding: 22px 20px;
+}
+.contre h3 { font: 800 26px/1.05 var(--display); text-transform: uppercase; margin: 0 0 10px; color: var(--hazard); }
+.contre p { font-size: 14px; margin: 0 0 14px; }
+.contre pre { overflow-x: auto; margin: 0 0 14px; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; background: #000; padding: 12px; }
+.contre .ko { color: #ff8a80; }
+.contre .okk { color: #9fd8b5; }
+
+/* Réseau */
+.reseau { background: var(--sheet); border: 2px solid var(--ink); padding: 22px 18px 10px; }
+.circuit-cap { margin: 0 0 18px; font-size: 13px; color: var(--ink-soft); }
+.circuit { display: flex; align-items: stretch; gap: 34px; margin-bottom: 14px; }
+.node { flex: 1; position: relative; border: 2px solid var(--ink); background: var(--paper); padding: 12px; text-align: center; font-size: 13px; }
+.node b { display: block; }
+.node span { color: var(--ink-soft); }
+.node:not(:last-child)::after { content: ""; position: absolute; right: -32px; top: 50%; width: 26px; height: 3px; background: var(--machine); }
+.node:not(:last-child)::before { content: ""; position: absolute; right: -34px; top: calc(50% - 5px); border: 6.5px solid transparent; border-left: 8px solid var(--machine); border-right: 0; }
+.node.nat { background: var(--machine); color: var(--sheet); }
+.node.nat span { color: var(--hazard); }
+.node.nat em { position: absolute; left: 50%; top: calc(100% + 10px); transform: translateX(-50%); white-space: nowrap; font-style: normal; font-size: 12px; font-weight: 600; color: var(--reject); }
+.node.net { border-style: dashed; background: transparent; display: flex; align-items: center; justify-content: center; }
+.reseau { padding-bottom: 40px; }
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-top: 22px; }
+.note { border-left: 4px solid var(--hazard); padding: 2px 0 2px 14px; font-size: 14px; }
+.note b { display: block; font: 800 20px/1.1 var(--display); text-transform: uppercase; margin-bottom: 4px; }
+
+/* Registre */
+.registre { border: 2px solid var(--ink); background: var(--sheet); }
+.lot { display: grid; grid-template-columns: 90px 1fr 76px; gap: 14px; align-items: center; padding: 12px 16px; border-bottom: 1px dashed var(--line); font-size: 13.5px; }
+.lot:last-child { border-bottom: 0; }
+.bar { height: 16px; background: var(--paper-2); position: relative; }
+.bar i { position: absolute; inset: 0 auto 0 0; width: 0; background: repeating-linear-gradient(-45deg, var(--machine) 0 6px, var(--machine-light) 6px 12px); transition: width 1s cubic-bezier(.2,.8,.2,1); }
+.lot .t { text-align: right; font-weight: 600; }
+.registre-note { font-size: 13px; color: var(--ink-soft); margin: 12px 0 0; }
+
+/* Incidents */
+.incidents { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+.incident { background: var(--sheet); border: 2px solid var(--ink); padding: 18px; position: relative; }
+.incident .no { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--reject); font-weight: 600; }
+.incident h3 { font: 800 22px/1.1 var(--display); text-transform: uppercase; margin: 8px 0 10px; }
+.incident p { margin: 0 0 8px; font-size: 13.5px; }
+.incident p.fix { margin: 0; padding-top: 8px; border-top: 1px dashed var(--line); }
+.incident p.fix::before { content: "Correctif : "; font-weight: 600; color: var(--machine); }
+
+/* Pied */
+footer { margin-top: 88px; background: var(--machine); color: var(--sheet); }
+.foot { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px; padding: 44px 0 40px; }
+.foot h2 { font: 900 clamp(34px, 6vw, 56px)/.95 var(--display); text-transform: uppercase; margin: 0 0 14px; }
+.foot h2 span { color: var(--hazard); }
+.foot p { margin: 0 0 12px; color: #dfe7e1; font-size: 14px; }
+.foot pre { background: var(--machine-2); border: 1px solid var(--machine-light); padding: 14px; margin: 0 0 14px; font: 13px/1.7 var(--mono); white-space: pre-wrap; word-break: break-all; }
+.btns { display: flex; flex-wrap: wrap; gap: 10px; }
+.btn { display: inline-block; padding: 10px 16px; text-decoration: none; font-weight: 600; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; border: 2px solid var(--sheet); }
+.btn.primary { background: var(--hazard); color: var(--ink); border-color: var(--hazard); }
+.colophon { border-top: 1px solid var(--machine-light); padding: 14px 0 22px; font-size: 12px; color: #9fb5aa; }
+
+@media (max-width: 760px) {
+  .controle, .foot { grid-template-columns: minmax(0, 1fr); }
+  .lot { grid-template-columns: 52px minmax(0, 1fr) 72px; gap: 10px; }
+  .lot .t { white-space: nowrap; }
+  #chaine .label { font-size: 26px; }
+  #chaine .num { font-size: 44px; }
+  .circuit { flex-direction: column; gap: 26px; }
+  .node:not(:last-child)::after { right: auto; left: 50%; top: auto; bottom: -24px; width: 3px; height: 18px; }
+  .node:not(:last-child)::before { right: auto; left: calc(50% - 5px); top: auto; bottom: -26px; border: 6.5px solid transparent; border-top: 8px solid var(--machine); border-bottom: 0; }
+  .node.nat em { position: static; transform: none; display: block; white-space: normal; margin-top: 6px; color: #ffb4ac; }
+  .reseau { padding-bottom: 18px; }
+  .fiche li { grid-template-columns: 28px minmax(0, 1fr) 40px; font-size: 13px; padding: 8px 12px; }
+  .big-stamp { font-size: 26px; }
+  .sec-head .side { display: none; }
+  .plate .hide-sm { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="hazard"></div>
+  <div class="wrap">
+    <div class="plate">
+      <div class="rivets"><span class="rivet"></span><span>Atelier debian-rebuild</span><span class="hide-sm">· Fiche de production</span></div>
+      <a href="https://github.com/Ybucaille/debian-rebuild">Code source ↗</a>
+    </div>
+    <div class="hero">
+      <div class="ref">Réf. DEB-13 · KVM / libvirt · cloud-init · nftables</div>
+      <h1>Un serveur<br>fabriqué <span>à la chaîne</span></h1>
+      <p class="lead">Une seule commande détruit un serveur Debian 13, le recrée, le configure, le sécurise et le passe au contrôle qualité : 15 tests, depuis l'hôte et depuis la VM. Aucune intervention manuelle.</p>
+      <div class="cmd">scripts/rebuild.sh</div>
+    </div>
+  </div>
+  <div class="line-wrap">
+    <div class="wrap">
+      <svg id="chaine" viewBox="0 0 1000 250" role="img" aria-label="Animation : une VM avance sur un tapis à travers cinq postes, puis reçoit le tampon 15 sur 15 conforme.">
+        <g id="stations"></g>
+        <!-- tapis -->
+        <rect x="10" y="196" width="980" height="16" rx="8" fill="#0f2019"/>
+        <g id="rollers"></g>
+        <!-- la VM -->
+        <g id="unit">
+          <rect x="-46" y="150" width="92" height="44" rx="3" fill="#ece6d6" stroke="#1c211e" stroke-width="2"/>
+          <rect x="-38" y="160" width="40" height="5" fill="#b9b19c"/>
+          <rect x="-38" y="170" width="40" height="5" fill="#b9b19c"/>
+          <rect x="-38" y="180" width="40" height="5" fill="#b9b19c"/>
+          <circle id="led1" cx="20" cy="163" r="4" fill="#545a54"/>
+          <circle id="led2" cx="32" cy="163" r="4" fill="#545a54"/>
+          <text x="26" y="186" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="#1c211e">.40</text>
+        </g>
+        <g class="stamp" id="stamp">
+          <rect x="840" y="36" width="140" height="62" fill="none" stroke="#f1b31c" stroke-width="4"/>
+          <text x="910" y="70" text-anchor="middle" font-family="Big Shoulders Display" font-weight="900" font-size="30" fill="#f1b31c">15/15</text>
+          <text x="910" y="89" text-anchor="middle" font-family="IBM Plex Mono" font-weight="600" font-size="11" fill="#f1b31c" letter-spacing="2">CONFORME</text>
+        </g>
+      </svg>
+      <div class="line-caption"><span>Animation accélérée.</span><span>Durée réelle mesurée : de 39 s à 1 min 36 selon le téléchargement des paquets.</span></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="postes">
+    <div class="sec-head"><span class="n">01</span><h2>Les cinq postes</h2><span class="side">deploy.sh + cloud-init</span></div>
+    <p class="intro">Chaque poste correspond à une étape réelle du script. Tout est décrit dans des fichiers texte versionnés : un serveur reconstruit est identique au précédent.</p>
+    <div class="postes">
+      <article class="poste">
+        <span class="tag">P1</span>
+        <h3>Matière première</h3>
+        <p>L'image cloud officielle de Debian 13, dont la somme SHA512 est vérifiée avant usage.</p>
+        <p>Le disque de la VM est <em>adossé</em> à cette image : il n'enregistre que les différences, et l'image n'est jamais modifiée.</p>
+      </article>
+      <article class="poste">
+        <span class="tag">P2</span>
+        <h3>Raccordement réseau</h3>
+        <p>Une réservation DHCP associe la MAC <code>52:54:00:a1:00:40</code> à l'adresse <code>192.168.122.40</code>, sur le réseau NAT de libvirt.</p>
+        <p>Même machine, même adresse, à chaque reconstruction.</p>
+      </article>
+      <article class="poste">
+        <span class="tag">P3</span>
+        <h3>Assemblage</h3>
+        <p>Au premier démarrage, cloud-init crée le compte <code>admin</code> (clé SSH seulement), met le système à jour et installe nginx, nftables et fail2ban.</p>
+      </article>
+      <article class="poste">
+        <span class="tag">P4</span>
+        <h3>Blindage</h3>
+        <p>Pare-feu en liste blanche : tout ce qui entre est refusé, sauf SSH, HTTP et le ping.</p>
+        <p>Root et mots de passe refusés en SSH. fail2ban bannit 1 h après 3 échecs en 10 min. Mises à jour de sécurité automatiques.</p>
+      </article>
+      <article class="poste">
+        <span class="tag">P5</span>
+        <h3>Contrôle qualité</h3>
+        <p><code>test.sh</code> vérifie chaque point depuis l'hôte et depuis la VM. Un seul échec et la reconstruction est déclarée non conforme.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="controle">
+    <div class="sec-head"><span class="n">02</span><h2>Fiche de contrôle</h2><span class="side">test.sh · sortie réelle</span></div>
+    <div class="controle">
+      <div class="fiche" id="fiche">
+        <div class="fiche-head"><span>VM deb-rebuild</span><span>15 points</span></div>
+        <ol>
+          <li class="grp">Réseau</li>
+          <li>La VM a l'IP réservée 192.168.122.40 (bail DHCP)<span class="st">OK</span></li>
+          <li>La VM répond au ping<span class="st">OK</span></li>
+          <li>La VM sort sur Internet via le NAT (deb.debian.org)<span class="st">OK</span></li>
+          <li>La VM résout les noms DNS<span class="st">OK</span></li>
+          <li class="grp">SSH</li>
+          <li>SSH par clé fonctionne pour admin<span class="st">OK</span></li>
+          <li>SSH ne propose pas l'authentification par mot de passe<span class="st">OK</span></li>
+          <li>Connexion root refusée<span class="st">OK</span></li>
+          <li>sshd : PermitRootLogin no, PasswordAuthentication no<span class="st">OK</span></li>
+          <li class="grp">Pare-feu</li>
+          <li>nftables actif, politique d'entrée à drop<span class="st">OK</span></li>
+          <li>HTTP (80) ouvert : la page d'état répond<span class="st">OK</span></li>
+          <li>Port 8080 joignable depuis la VM elle-même<span class="st">OK</span></li>
+          <li>Port 8080 bloqué depuis l'hôte par le pare-feu<span class="st">OK</span></li>
+          <li class="grp">Services de sécurité</li>
+          <li>fail2ban surveille sshd<span class="st">OK</span></li>
+          <li>Mises à jour de sécurité automatiques activées<span class="st">OK</span></li>
+          <li>Aucune mise à jour en attente<span class="st">OK</span></li>
+        </ol>
+        <div class="big-stamp">Conforme<small>15 réussis · 0 échec</small></div>
+      </div>
+      <aside class="contre">
+        <h3>Contre-épreuve</h3>
+        <p>Un test qui passe toujours ne prouve rien. Alors j'ai vidé les règles du pare-feu de la VM et relancé les tests :</p>
+        <pre>$ sudo nft flush ruleset
+$ scripts/test.sh
+<span class="ko">[ÉCHEC] nftables actif, politique d'entrée à drop</span>
+<span class="ko">[ÉCHEC] Port 8080 bloqué depuis l'hôte par le pare-feu</span>
+<span class="okk">13 tests réussis, 2 en échec.</span></pre>
+        <p>Le test du port 8080 lance un petit serveur web dans la VM. Il répond en local mais pas depuis l'hôte : c'est la preuve que le pare-feu filtre vraiment, et pas seulement qu'aucun service n'écoute.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section id="reseau">
+    <div class="sec-head"><span class="n">03</span><h2>Le circuit réseau</h2><span class="side">NAT libvirt · nftables</span></div>
+    <div class="reseau">
+      <p class="circuit-cap">Sortie : l'adresse source est réécrite deux fois. Le serveur distant ne voit que l'IP publique de la box.</p>
+      <div class="circuit" role="img" aria-label="La VM 192.168.122.40 passe par le pont virbr0 192.168.122.1, puis par le NAT de l'hôte, puis par la box, vers Internet.">
+        <div class="node"><b>VM deb-rebuild</b><span>192.168.122.40</span></div>
+        <div class="node"><b>virbr0 (pont)</b><span>192.168.122.1</span></div>
+        <div class="node nat"><b>NAT de l'hôte</b><span>masquerade</span><em>✕ Réseau de la maison → VM : refusé</em></div>
+        <div class="node"><b>Box</b><span>NAT n°2</span></div>
+        <div class="node net"><b>Internet</b></div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note"><b>Sortir, oui</b>La VM télécharge ses mises à jour : le NAT de l'hôte remplace son adresse par la sienne, puis la box fait de même.</div>
+      <div class="note"><b>Entrer, non</b>Sur l'hôte, seules les réponses à une connexion ouverte par la VM passent (suivi de connexion). Seul l'hôte peut joindre la VM.</div>
+      <div class="note"><b>Et dans la VM</b>Second filtre, nftables : <code>policy drop</code>, puis on ouvre uniquement SSH (22), HTTP (80) et le ping.</div>
+    </div>
+  </section>
+
+  <section id="registre">
+    <div class="sec-head"><span class="n">04</span><h2>Registre de production</h2><span class="side">rebuild.sh · chronométré</span></div>
+    <div class="registre" id="registre">
+      <div class="lot"><span>Lot 01</span><div class="bar"><i data-s="91"></i></div><span class="t">1 min 31</span></div>
+      <div class="lot"><span>Lot 02</span><div class="bar"><i data-s="63"></i></div><span class="t">1 min 03</span></div>
+      <div class="lot"><span>Lot 03</span><div class="bar"><i data-s="63"></i></div><span class="t">1 min 03</span></div>
+      <div class="lot"><span>Lot 04</span><div class="bar"><i data-s="39"></i></div><span class="t">0 min 39</span></div>
+      <div class="lot"><span>Lot 05</span><div class="bar"><i data-s="96"></i></div><span class="t">1 min 36</span></div>
+    </div>
+    <p class="registre-note">Mes cinq premières reconstructions complètes (destruction, création, configuration et 15 tests), sur un i7-11800H. L'écart vient surtout du téléchargement des paquets Debian.</p>
+  </section>
+
+  <section id="incidents">
+    <div class="sec-head"><span class="n">05</span><h2>Incidents de fabrication</h2><span class="side">ce que j'ai appris</span></div>
+    <div class="incidents">
+      <article class="incident">
+        <span class="no">Incident 01</span>
+        <h3>Redémarrage en boucle</h3>
+        <p>En BIOS, la VM redémarrait sans fin juste après GRUB : jamais de noyau, jamais d'adresse IP.</p>
+        <p class="fix">démarrage en UEFI (<code>--boot uefi</code>).</p>
+      </article>
+      <article class="incident">
+        <span class="no">Incident 02</span>
+        <h3>Volume introuvable</h3>
+        <p>libvirt ne voit pas un fichier ajouté à un pool tant que la liste n'a pas été relue.</p>
+        <p class="fix"><code>virsh pool-refresh</code> avant de créer le disque.</p>
+      </article>
+      <article class="incident">
+        <span class="no">Incident 03</span>
+        <h3>SSH coupé en route</h3>
+        <p>cloud-init redémarre sshd à la fin de la configuration : la connexion du script tombait.</p>
+        <p class="fix">le script réessaie tant que la connexion est coupée.</p>
+      </article>
+      <article class="incident">
+        <span class="no">Incident 04</span>
+        <h3>Image de base effacée</h3>
+        <p><code>virsh undefine --remove-all-storage</code> supprime tous les disques rattachés à la VM, pas seulement le sien. Il a effacé l'image Debian de base.</p>
+        <p class="fix">destroy.sh ne supprime plus que le disque qu'il a créé, désigné par son nom.</p>
+      </article>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="hazard"></div>
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <h2>Essayer <span>chez soi</span></h2>
+        <p>Il faut Linux avec KVM, libvirt, virt-install et OVMF, plus l'image cloud officielle de Debian 13 dans un pool libvirt. Les chemins se règlent dans <code>config.sh</code>.</p>
+        <pre>git clone https://github.com/Ybucaille/debian-rebuild
+cd debian-rebuild
+scripts/rebuild.sh</pre>
+        <div class="btns">
+          <a class="btn primary" href="https://github.com/Ybucaille/debian-rebuild">Voir le code</a>
+          <a class="btn" href="https://github.com/Ybucaille/debian-rebuild/blob/main/cloud-init/user-data.yaml">La config cloud-init</a>
+        </div>
+      </div>
+      <div>
+        <h2>L'auteur</h2>
+        <p>Yann Bucaille, en formation Technicien Supérieur Systèmes et Réseaux chez 2i Academy. Je cherche une entreprise pour mon alternance : 3 semaines en entreprise pour 1 semaine en formation, dans le Calvados ou en télétravail.</p>
+        <div class="btns">
+          <a class="btn primary" href="https://www.linkedin.com/in/yann-bucaille-235057230/">Me contacter sur LinkedIn</a>
+        </div>
+      </div>
+    </div>
+    <div class="colophon">debian-rebuild · Debian 13 · KVM / libvirt · cloud-init · nftables · fail2ban</div>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs, parent) => {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    parent.appendChild(n);
+    return n;
+  };
+
+  // ---------- La chaîne ----------
+  const names = ["Image", "Réseau", "cloud-init", "Pare-feu", "Contrôle"];
+  const xs = [130, 300, 470, 640, 810];
+  const stationsG = document.getElementById("stations");
+  const stations = xs.map((x, i) => {
+    const g = el("g", { class: "station" }, stationsG);
+    el("rect", { x: x - 52, y: 40, width: 104, height: 8, fill: "#3b6b58" }, g);
+    el("rect", { x: x - 50, y: 48, width: 6, height: 100, fill: "#3b6b58" }, g);
+    el("rect", { x: x + 44, y: 48, width: 6, height: 100, fill: "#3b6b58" }, g);
+    el("rect", { class: "lamp", x: x - 18, y: 56, width: 36, height: 8, rx: 2 }, g);
+    const n = el("text", { class: "num", x: x, y: 32, "text-anchor": "middle" }, g);
+    n.textContent = "P" + (i + 1);
+    const t = el("text", { class: "label", x: x, y: 238, "text-anchor": "middle" }, g);
+    t.textContent = names[i];
+    return g;
+  });
+  const rollersG = document.getElementById("rollers");
+  const rollers = [];
+  for (let x = 30; x <= 970; x += 40) {
+    const g = el("g", { transform: `translate(${x} 204)` }, rollersG);
+    el("circle", { r: 6, fill: "#1b362c", stroke: "#3b6b58", "stroke-width": 2 }, g);
+    el("line", { x1: -5, y1: 0, x2: 5, y2: 0, stroke: "#3b6b58", "stroke-width": 2 }, g);
+    rollers.push(g);
+  }
+  const unit = document.getElementById("unit");
+  const stamp = document.getElementById("stamp");
+  const led1 = document.getElementById("led1");
+  const led2 = document.getElementById("led2");
+
+  const CYCLE = 9000;
+  let start = performance.now();
+  function frame(now) {
+    const t = ((now - start) % CYCLE) / CYCLE;
+    // trajet de -60 à 1060 sur 85 % du cycle, pause de 0,3 s sous chaque poste
+    const travel = Math.min(t / 0.85, 1);
+    const raw = -60 + travel * 1120;
+    let x = raw;
+    for (const sx of xs) {
+      const d = raw - sx;
+      if (Math.abs(d) < 24) x = sx + d * 0.15; // ralentit sous le poste
+    }
+    unit.setAttribute("transform", `translate(${x} 0)`);
+    rollers.forEach(r => r.lastChild.setAttribute("transform", `rotate(${(x * 3) % 360})`));
+    xs.forEach((sx, i) => {
+      const on = Math.abs(x - sx) < 40;
+      stations[i].classList.toggle("on", on);
+      stations[i].classList.toggle("done", x > sx + 40);
+    });
+    led1.setAttribute("fill", x > xs[1] ? "#7fbf9a" : "#545a54");
+    led2.setAttribute("fill", x > xs[3] ? "#f1b31c" : "#545a54");
+    if (x > xs[4] + 40) stamp.classList.add("hit"); else stamp.classList.remove("hit");
+    requestAnimationFrame(frame);
+  }
+  if (reduce) {
+    unit.setAttribute("transform", `translate(${xs[4]} 0)`);
+    stations.forEach(s => s.classList.add("done"));
+    stamp.style.opacity = 1;
+  } else {
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- Fiche de contrôle et registre, au défilement ----------
+  const fiche = document.getElementById("fiche");
+  const items = [...fiche.querySelectorAll("li:not(.grp)")];
+  const bars = [...document.querySelectorAll(".bar i")];
+  const max = Math.max(...bars.map(b => +b.dataset.s));
+  const fillBars = () => bars.forEach(b => b.style.width = (b.dataset.s / max * 100) + "%");
+  const tick = () => {
+    items.forEach((li, i) => setTimeout(() => li.classList.add("ok"), reduce ? 0 : i * 110));
+    setTimeout(() => fiche.classList.add("done"), reduce ? 0 : items.length * 110 + 200);
+  };
+  if (!("IntersectionObserver" in window)) { tick(); fillBars(); return; }
+  const io = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      if (e.target === fiche) tick(); else fillBars();
+      io.unobserve(e.target);
+    }
+  }, { threshold: 0.3 });
+  io.observe(fiche);
+  io.observe(document.getElementById("registre"));
+})();
+</script>
+</body>
+</html>
