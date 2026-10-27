@@ -64,7 +64,7 @@ Le test du port 8080 lance un petit serveur web dans la VM : il répond en local
 ## Prérequis
 
 - Linux avec KVM, libvirt (`qemu:///system`, utilisateur dans le groupe `libvirt`), `virt-install` 4 ou plus, firmware OVMF ;
-- l'image officielle [debian-13-genericcloud-amd64.qcow2](https://cloud.debian.org/images/cloud/trixie/latest/), vérifiée avec `SHA512SUMS`, placée dans un pool libvirt (ici `~/Documents/OS`, pool `OS`).
+- l'image officielle [debian-13-genericcloud-amd64.qcow2](https://cloud.debian.org/images/cloud/trixie/latest/), vérifiée avec `SHA512SUMS`, placée dans un pool libvirt (ici `~/Documents/autres/iso`, pool `iso`).
 
 ## Problèmes rencontrés
 

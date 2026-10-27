@@ -10,8 +10,8 @@ VM_VCPUS=2
 VM_DISK_SIZE=10G
 VM_POOL=default
 
-BASE_POOL=OS
-BASE_IMAGE=$HOME/Documents/OS/debian-13-genericcloud-amd64.qcow2
+BASE_POOL=iso
+BASE_IMAGE=$HOME/Documents/autres/iso/debian-13-genericcloud-amd64.qcow2
 
 BUILD_DIR=build
 LAB_KEY=$BUILD_DIR/lab_ed25519
